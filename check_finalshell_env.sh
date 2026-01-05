@@ -4,7 +4,7 @@
 # A user-level preflight script to verify Linux environment compatibility
 # with FinalShell server monitoring.
 #
-# Copyright (c) 2026 liujingyang
+# Copyright (c) 2026 jysir99
 # MIT License
 
 set -euo pipefail
