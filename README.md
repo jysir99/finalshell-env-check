@@ -102,10 +102,6 @@ Simulating FinalShell monitoring sequence...
 
 ==========================================
 ❌ Environment is NOT compatible with FinalShell server monitoring
-
-Failure reasons:
-  • Missing command: uptime
-  • uptime command failed
 ```
 
 ---
