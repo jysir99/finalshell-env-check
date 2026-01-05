@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # finalshell-env-check
 # A user-level preflight script to verify Linux environment compatibility
@@ -7,7 +7,8 @@
 # Copyright (c) 2026 jysir99
 # MIT License
 
-set -euo pipefail
+# Don't exit on error - we want to complete all checks
+set -uo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -17,92 +18,34 @@ NC='\033[0m' # No Color
 
 # Exit codes
 EXIT_SUCCESS=0
-EXIT_MISSING_COMMAND=101
-EXIT_READ_ERROR=102
-EXIT_LOCALE_ERROR=103
 EXIT_COLLECTION_FAILED=104
 
 # Track failures
-FAILURES=0
-FAILURE_REASONS=()
+FAIL=0
 
 # Function to check if a command exists
-check_command() {
-    local cmd=$1
+check_cmd() {
+    local cmd="$1"
     if command -v "$cmd" >/dev/null 2>&1; then
         echo -e "${GREEN}[ OK ]${NC} command '$cmd' exists"
         return 0
     else
         echo -e "${RED}[FAIL]${NC} command '$cmd' NOT found"
-        FAILURES=$((FAILURES + 1))
-        FAILURE_REASONS+=("Missing command: $cmd")
+        FAIL=1
         return 1
     fi
 }
 
 # Function to check file readability
 check_file_readable() {
-    local file=$1
-    if [ -r "$file" ]; then
-        echo -e "${GREEN}[ OK ]${NC} file '$file' is readable"
+    local f="$1"
+    if [ -r "$f" ]; then
+        echo -e "${GREEN}[ OK ]${NC} file '$f' is readable"
         return 0
     else
-        echo -e "${RED}[FAIL]${NC} file '$file' is NOT readable"
-        FAILURES=$((FAILURES + 1))
-        FAILURE_REASONS+=("Cannot read file: $file")
+        echo -e "${RED}[FAIL]${NC} file '$f' is NOT readable"
+        FAIL=1
         return 1
-    fi
-}
-
-# Function to check locale compatibility
-check_locale() {
-    if locale -a 2>/dev/null | grep -q "^en_US"; then
-        echo -e "${GREEN}[ OK ]${NC} locale 'en_US' is available"
-        return 0
-    else
-        echo -e "${YELLOW}[WARN]${NC} locale 'en_US' may not be available (non-critical)"
-        return 0
-    fi
-}
-
-# Function to simulate FinalShell's core data collection
-simulate_finalshell_collection() {
-    local exit_code=0
-    
-    # Simulate FinalShell's monitoring command sequence
-    # Based on reverse analysis of FinalShell behavior
-    
-    # 1. Check uptime (used for system uptime)
-    if ! uptime >/dev/null 2>&1; then
-        exit_code=$EXIT_MISSING_COMMAND
-        FAILURE_REASONS+=("uptime command failed")
-    fi
-    
-    # 2. Check free (used for memory info)
-    if ! free -m >/dev/null 2>&1; then
-        exit_code=$EXIT_MISSING_COMMAND
-        FAILURE_REASONS+=("free command failed")
-    fi
-    
-    # 3. Check df (used for disk usage)
-    if ! df -h >/dev/null 2>&1; then
-        exit_code=$EXIT_MISSING_COMMAND
-        FAILURE_REASONS+=("df command failed")
-    fi
-    
-    # 4. Check /proc/net/dev (used for network stats)
-    if ! cat /proc/net/dev >/dev/null 2>&1; then
-        exit_code=$EXIT_READ_ERROR
-        FAILURE_REASONS+=("Cannot read /proc/net/dev")
-    fi
-    
-    if [ $exit_code -eq 0 ]; then
-        echo -e "${GREEN}[ OK ]${NC} FinalShell core data collection succeeded"
-        return 0
-    else
-        echo -e "${RED}[FAIL]${NC} FinalShell core data collection failed (exit code=$exit_code)"
-        FAILURES=$((FAILURES + 1))
-        return $exit_code
     fi
 }
 
@@ -115,39 +58,63 @@ main() {
     
     # Check required commands
     echo "Checking required commands..."
-    check_command "bash"
-    check_command "free"
-    check_command "uptime"
-    check_command "df"
+    check_cmd bash || true
+    check_cmd free || true
+    check_cmd uptime || true
+    check_cmd df || true
     echo ""
     
     # Check required file access
     echo "Checking file access..."
-    check_file_readable "/proc/net/dev"
+    check_file_readable /proc/net/dev || true
     echo ""
     
-    # Check locale (non-critical warning)
+    # Check locale compatibility
     echo "Checking locale compatibility..."
-    check_locale
+    if locale -a 2>/dev/null | grep -qi '^en_US'; then
+        echo -e "${GREEN}[ OK ]${NC} locale 'en_US' is available"
+    else
+        echo -e "${YELLOW}[WARN]${NC} locale 'en_US' may not be available (non-critical)"
+    fi
     echo ""
     
     # Simulate FinalShell's actual monitoring sequence
     echo "Simulating FinalShell monitoring sequence..."
-    simulate_finalshell_collection || true
+    TMP_OUT=$(mktemp 2>/dev/null || echo /tmp/finalshell_check_$$)
+    
+    bash -c '
+export LANG="en_US"
+export LANGUAGE="en_US"
+export LC_ALL="en_US"
+
+free || exit 101
+echo finalshell_separator
+uptime || exit 102
+echo finalshell_separator
+cat /proc/net/dev || exit 103
+echo finalshell_separator
+df || exit 104
+' >"$TMP_OUT" 2>&1
+
+    RET=$?
+
+    if [ $RET -eq 0 ]; then
+        echo -e "${GREEN}[ OK ]${NC} FinalShell core data collection succeeded"
+    else
+        echo -e "${RED}[FAIL]${NC} FinalShell core data collection failed (exit code=$RET)"
+        FAIL=1
+    fi
+
+    rm -f "$TMP_OUT" 2>/dev/null || true
     echo ""
     
     # Final verdict
     echo "=========================================="
-    if [ $FAILURES -eq 0 ]; then
+    if [ $FAIL -eq 0 ]; then
         echo -e "${GREEN}✅ Environment is compatible with FinalShell server monitoring${NC}"
         exit $EXIT_SUCCESS
     else
         echo -e "${RED}❌ Environment is NOT compatible with FinalShell server monitoring${NC}"
-        echo ""
-        echo "Failure reasons:"
-        for reason in "${FAILURE_REASONS[@]}"; do
-            echo -e "  ${RED}•${NC} $reason"
-        done
         exit $EXIT_COLLECTION_FAILED
     fi
 }
